@@ -14,6 +14,7 @@ from dataclasses import dataclass, asdict
 from urllib.parse import urlparse, parse_qs
 from concurrent.futures import ThreadPoolExecutor
 from itertools import islice
+import ipaddress
 
 @dataclass
 class ConfigData:
@@ -407,6 +408,16 @@ async def test_config(config_url: str, port: int) -> Dict:
                             "message": "Received HTML response instead of IP",
                             "port": port
                         }
+                    try:
+                        ipaddress.ip_address(output)
+                    except ValueError:
+                        return {
+                            "config": config_url,
+                            "status": "failed",
+                            "message": f"Invalid IP: {output}",
+                            "port": port
+                        }
+                        
                     # Before saving, check if it already exists
                     if os.path.exists("working_configs.txt"):
                         with open("working_configs.txt", "r") as f:
@@ -452,14 +463,6 @@ async def test_config(config_url: str, port: int) -> Dict:
                 "port": port
             }
 
-    except Exception as e:
-        return {
-            "config": config_url,
-            "status": "error",
-            "message": str(e),
-            "port": port
-        }
-
     finally:
         # Cleanup
         if process:
@@ -475,11 +478,12 @@ async def test_config(config_url: str, port: int) -> Dict:
             except:
                 pass
 
-async def test_config_batch(configs: List[str], start_port: int = 1080):
+async def test_config_batch(configs: List[str], start_port: int = 1080, batch_size: int = 40):
     """Test a batch of configs simultaneously"""
     tasks = []
     for i, config in enumerate(configs):
-        port = start_port + i
+        # Use modulo to cycle through the port range
+        port = start_port + (i % batch_size)
         task = asyncio.create_task(test_config(config, port))
         tasks.append(task)
     
@@ -579,7 +583,8 @@ async def main():
             
             results = await test_config_batch(
                 current_batch,
-                start_port + (batch_num * batch_size)
+                start_port,
+                batch_size
             )
             
             print_results(results, batch_num + 1, total_batches)
